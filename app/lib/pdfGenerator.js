@@ -142,7 +142,7 @@ function buildPDF(data) {
   }
 
   if (data.painPoints && data.painPoints.length > 0) {
-    sectionTitle('AI-Generated Pain Points');
+    sectionTitle('Pain Points');
     for (let i = 0; i < data.painPoints.length; i++) {
       bulletPoint(data.painPoints[i]);
     }
