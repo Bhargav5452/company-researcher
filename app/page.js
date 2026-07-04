@@ -319,10 +319,11 @@ export default function HomePage() {
       if (res.ok) {
         updateEntry(entryId, { discordStatus: 'sent' });
       } else {
-        updateEntry(entryId, { discordStatus: 'error' });
+        const errorData = await res.json().catch(() => ({}));
+        updateEntry(entryId, { discordStatus: 'error', discordError: errorData.error || `Error ${res.status}` });
       }
-    } catch {
-      updateEntry(entryId, { discordStatus: 'error' });
+    } catch (err) {
+      updateEntry(entryId, { discordStatus: 'error', discordError: err.message || 'Network error' });
     }
   }
 
@@ -411,8 +412,10 @@ export default function HomePage() {
     }
     if (status === 'error') {
       return (
-        <div className="discord-pill not-connected">
-          <span className="discord-pill-text" style={{ color: '#f87171' }}>Discord send failed</span>
+        <div className="discord-pill not-connected" title={entry.discordError}>
+          <span className="discord-pill-text" style={{ color: '#f87171' }}>
+            Failed: {entry.discordError || 'Discord send failed'}
+          </span>
         </div>
       );
     }

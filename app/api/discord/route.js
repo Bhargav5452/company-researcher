@@ -48,8 +48,9 @@ export async function POST(request) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error('Discord API Error Response:', errorData, 'Status:', response.status);
       return Response.json(
-        { error: errorData.message || `Discord API error: ${response.status}` },
+        { error: errorData.message || `Discord API error: ${response.status} (${JSON.stringify(errorData)})` },
         { status: response.status }
       );
     }
@@ -57,6 +58,7 @@ export async function POST(request) {
     const result = await response.json();
     return Response.json({ success: true, messageId: result.id });
   } catch (error) {
+    console.error('Discord route catch block error:', error);
     return Response.json(
       { error: error.message || 'Failed to send message to Discord.' },
       { status: 500 }
