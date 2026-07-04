@@ -5,7 +5,6 @@ const FETCH_TIMEOUT = 10000;
 const MAX_PAGES = 8;
 const MAX_CONTENT_LENGTH = 8000;
 
-// Patterns for important pages to crawl
 const IMPORTANT_PATTERNS = [
   /\/(about|company|who-we-are|our-story)/i,
   /\/(products?|services?|solutions?|offerings?|features?|platform)/i,
@@ -15,7 +14,6 @@ const IMPORTANT_PATTERNS = [
   /\/(careers?|jobs?)/i,
 ];
 
-// Patterns to ignore
 const IGNORE_PATTERNS = [
   /\/(login|signin|sign-in|signup|sign-up|register|auth|oauth)/i,
   /\/(cart|checkout|payment|billing)/i,
@@ -30,59 +28,34 @@ const IGNORE_PATTERNS = [
   /javascript:/i,
 ];
 
-/**
- * Fetch a page with timeout and error handling
- */
 async function fetchPage(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': USER_AGENT },
       signal: controller.signal,
       redirect: 'follow',
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('text/html')) {
-      throw new Error('Not HTML content');
-    }
-
-    const html = await response.text();
-    return html;
+    if (!contentType.includes('text/html')) throw new Error('Not HTML');
+    return await response.text();
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/**
- * Extract meaningful content from HTML
- */
 function extractContent(html, url) {
   const $ = cheerio.load(html);
-
-  // Remove unwanted elements
   $('script, style, noscript, iframe, svg, canvas, video, audio').remove();
   $('nav, header, footer, aside').remove();
   $('.nav, .navbar, .header, .footer, .sidebar, .menu, .cookie, .popup, .modal, .banner, .ad, .ads, .advertisement').remove();
   $('[role="navigation"], [role="banner"], [role="contentinfo"]').remove();
-
-  // Extract title
   const title = $('title').text().trim() || $('h1').first().text().trim() || '';
-
-  // Extract meta description
-  const metaDescription = $('meta[name="description"]').attr('content') || 
-                          $('meta[property="og:description"]').attr('content') || '';
-
-  // Extract main content (try specific selectors first)
+  const metaDescription = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '';
   let content = '';
   const mainSelectors = ['main', 'article', '[role="main"]', '.main-content', '.content', '.page-content', '#content', '#main'];
-  
   for (const selector of mainSelectors) {
     const el = $(selector);
     if (el.length && el.text().trim().length > 100) {
@@ -90,20 +63,8 @@ function extractContent(html, url) {
       break;
     }
   }
-
-  // Fallback to body
-  if (!content || content.length < 100) {
-    content = $('body').text().trim();
-  }
-
-  // Clean up whitespace
-  content = content
-    .replace(/\s+/g, ' ')
-    .replace(/\n\s*\n/g, '\n')
-    .trim()
-    .substring(0, MAX_CONTENT_LENGTH);
-
-  // Extract all internal links
+  if (!content || content.length < 100) content = $('body').text().trim();
+  content = content.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim().substring(0, MAX_CONTENT_LENGTH);
   const baseUrl = new URL(url);
   const links = [];
   $('a[href]').each((_, el) => {
@@ -113,23 +74,15 @@ function extractContent(html, url) {
       const absoluteUrl = new URL(href, url).href;
       const linkUrl = new URL(absoluteUrl);
       if (linkUrl.hostname === baseUrl.hostname) {
-        links.push(absoluteUrl.split('#')[0].split('?')[0]); // strip hash and query
+        links.push(absoluteUrl.split('#')[0].split('?')[0]);
       }
-    } catch (e) {
-      // Invalid URL, skip
-    }
+    } catch {}
   });
-
   return { title, metaDescription, content, links: [...new Set(links)] };
 }
 
-/**
- * Extract contact information using regex patterns
- */
 function extractContactInfo(allContent) {
   const combined = allContent.join(' ');
-
-  // Phone numbers
   const phonePatterns = [
     /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
     /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}/g,
@@ -142,15 +95,9 @@ function extractContactInfo(allContent) {
       break;
     }
   }
-
-  // Email addresses
   const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   const emails = combined.match(emailPattern) || [];
-  const contactEmail = emails.find(e => 
-    /contact|info|hello|support|sales|general/i.test(e)
-  ) || emails[0] || null;
-
-  // Address patterns (simplified)
+  const contactEmail = emails.find(e => /contact|info|hello|support|sales|general/i.test(e)) || emails[0] || null;
   const addressPatterns = [
     /\d{1,5}\s+[\w\s]+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl)[\s,]+[\w\s]+,?\s*[A-Z]{2}\s*\d{5}/gi,
     /[\w\s]+,\s*[\w\s]+,\s*[A-Z]{2}\s+\d{5}/g,
@@ -163,13 +110,9 @@ function extractContactInfo(allContent) {
       break;
     }
   }
-
   return { phone, email: contactEmail, address };
 }
 
-/**
- * Normalize a URL for deduplication
- */
 function normalizeUrl(url) {
   try {
     const u = new URL(url);
@@ -180,72 +123,41 @@ function normalizeUrl(url) {
   }
 }
 
-/**
- * Score a URL based on how important the page likely is
- */
 function scoreUrl(url) {
   const path = new URL(url).pathname.toLowerCase();
-  
-  // Homepage gets highest priority
   if (path === '/' || path === '') return 100;
-  
-  // Check important patterns
   for (const pattern of IMPORTANT_PATTERNS) {
     if (pattern.test(path)) return 80;
   }
-  
-  // Short paths are likely more important
   const depth = path.split('/').filter(Boolean).length;
   if (depth === 1) return 60;
   if (depth === 2) return 40;
-  
   return 20;
 }
 
-/**
- * Check if a URL should be ignored
- */
 function shouldIgnore(url) {
   const path = new URL(url).pathname;
   return IGNORE_PATTERNS.some(pattern => pattern.test(path));
 }
 
-/**
- * Main crawl function - crawls a website and extracts content
- * @param {string} startUrl - The website URL to crawl
- * @param {function} onProgress - Optional callback for progress updates
- * @returns {object} Crawled data
- */
 export async function crawlWebsite(startUrl, onProgress) {
-  const results = {
-    pages: [],
-    contactInfo: {},
-    allContent: [],
-  };
-
-  // Normalize the start URL
+  const results = { pages: [], contactInfo: {}, allContent: [] };
   let baseUrl;
   try {
     baseUrl = new URL(startUrl.startsWith('http') ? startUrl : `https://${startUrl}`);
   } catch {
     throw new Error(`Invalid URL: ${startUrl}`);
   }
-
   const homepageUrl = `${baseUrl.protocol}//${baseUrl.hostname}`;
   const visited = new Set();
   const toVisit = [homepageUrl];
-
-  // Step 1: Crawl the homepage first to discover links
   if (onProgress) onProgress(`Crawling homepage: ${baseUrl.hostname}`);
-
   try {
     const html = await fetchPage(homepageUrl);
     const pageData = extractContent(html, homepageUrl);
     visited.add(normalizeUrl(homepageUrl));
     results.pages.push({ url: homepageUrl, title: pageData.title, content: pageData.content });
     results.allContent.push(pageData.content);
-
-    // Add discovered links to the visit queue
     for (const link of pageData.links) {
       const normalized = normalizeUrl(link);
       if (!visited.has(normalized) && !shouldIgnore(link)) {
@@ -255,32 +167,23 @@ export async function crawlWebsite(startUrl, onProgress) {
   } catch (err) {
     if (onProgress) onProgress(`Failed to crawl homepage: ${err.message}`);
   }
-
-  // Step 2: Sort remaining URLs by importance and crawl top ones
   const scoredUrls = toVisit
     .filter(url => !visited.has(normalizeUrl(url)))
     .map(url => ({ url, score: scoreUrl(url) }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_PAGES - 1); // -1 because we already crawled homepage
-
+    .slice(0, MAX_PAGES - 1);
   for (const { url } of scoredUrls) {
     const normalized = normalizeUrl(url);
     if (visited.has(normalized)) continue;
     visited.add(normalized);
-
     try {
       if (onProgress) onProgress(`Crawling: ${new URL(url).pathname}`);
       const html = await fetchPage(url);
       const pageData = extractContent(html, url);
       results.pages.push({ url, title: pageData.title, content: pageData.content });
       results.allContent.push(pageData.content);
-    } catch (err) {
-      // Skip failed pages silently
-    }
+    } catch {}
   }
-
-  // Step 3: Extract contact info from all crawled content
   results.contactInfo = extractContactInfo(results.allContent);
-
   return results;
 }

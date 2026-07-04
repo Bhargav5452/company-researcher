@@ -1,0 +1,209 @@
+import { jsPDF } from 'jspdf';
+
+export function generatePDF(data) {
+  const doc = buildPDF(data);
+  const slug = slugify(data.companyName || 'company');
+  doc.save(`${slug}-research-report.pdf`);
+}
+
+export function generatePDFBlob(data) {
+  const doc = buildPDF(data);
+  const dataUri = doc.output('datauristring');
+  return dataUri.split(',')[1];
+}
+
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildPDF(data) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 48;
+  const contentWidth = pageWidth - marginX * 2;
+
+  let y = 0;
+
+  doc.setFillColor(10, 11, 15);
+  doc.rect(0, 0, pageWidth, 96, 'F');
+
+  doc.setFillColor(234, 181, 77);
+  doc.rect(0, 96, pageWidth, 4, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(234, 181, 77);
+  doc.text('COMPANY RESEARCH ASSISTANT \u00B7 REPORT', marginX, 38);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(24);
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.companyName || 'Unknown Company', marginX, 68);
+
+  y = 132;
+
+  function sectionTitle(label) {
+    ensureRoom(40);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(150, 110, 20);
+    doc.text(label.toUpperCase(), marginX, y);
+    y += 6;
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.5);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 18;
+  }
+
+  function bodyText(label, value) {
+    if (!value) return;
+    ensureRoom(40);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(90, 90, 95);
+    doc.text(label, marginX, y);
+    y += 16;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 34);
+    const lines = doc.splitTextToSize(value, contentWidth);
+    for (let i = 0; i < lines.length; i++) {
+      ensureRoom(16);
+      doc.text(lines[i], marginX, y);
+      y += 16;
+    }
+    y += 8;
+  }
+
+  function textBlock(text) {
+    if (!text) return;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 34);
+    const lines = doc.splitTextToSize(text, contentWidth);
+    for (let i = 0; i < lines.length; i++) {
+      ensureRoom(16);
+      doc.text(lines[i], marginX, y);
+      y += 16;
+    }
+    y += 8;
+  }
+
+  function ensureRoom(needed) {
+    if (y + needed > pageHeight - 50) {
+      doc.addPage();
+      y = 48;
+    }
+  }
+
+  function bulletPoint(text) {
+    if (!text) return;
+    ensureRoom(20);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 34);
+
+    doc.text('\u2022', marginX + 4, y);
+
+    const bulletIndent = 18;
+    const lines = doc.splitTextToSize(text, contentWidth - bulletIndent);
+    for (let i = 0; i < lines.length; i++) {
+      ensureRoom(16);
+      doc.text(lines[i], marginX + bulletIndent, y);
+      y += 16;
+    }
+    y += 4;
+  }
+
+  sectionTitle('Company Information');
+  bodyText('Website', data.website);
+  bodyText('Phone', data.phone);
+  bodyText('Address', data.address);
+  y += 8;
+
+  if (data.summary) {
+    sectionTitle('Summary');
+    textBlock(data.summary);
+    y += 8;
+  }
+
+  if (data.products && data.products.length > 0) {
+    sectionTitle('Products & Services');
+    for (let i = 0; i < data.products.length; i++) {
+      bulletPoint(data.products[i]);
+    }
+    y += 8;
+  }
+
+  if (data.painPoints && data.painPoints.length > 0) {
+    sectionTitle('AI-Generated Pain Points');
+    for (let i = 0; i < data.painPoints.length; i++) {
+      bulletPoint(data.painPoints[i]);
+    }
+    y += 8;
+  }
+
+  if (data.competitors && data.competitors.length > 0) {
+    sectionTitle('Competitors');
+
+    const colWidth = (contentWidth - 16) / 2;
+
+    for (let i = 0; i < data.competitors.length; i++) {
+      const comp = data.competitors[i];
+      const isLeftCol = i % 2 === 0;
+      const colX = isLeftCol ? marginX : marginX + colWidth + 16;
+
+      if (isLeftCol) {
+        ensureRoom(40);
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(30, 30, 34);
+      doc.text(comp.name || 'Unknown', colX, y);
+
+      if (comp.website) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 110, 180);
+        doc.text(comp.website, colX, y + 14);
+      }
+
+      if (!isLeftCol || i === data.competitors.length - 1) {
+        y += 36;
+      }
+    }
+    y += 8;
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(160, 160, 165);
+    doc.text(
+      `Generated by Company Research Assistant \u00B7 ${dateStr}`,
+      marginX,
+      pageHeight - 28
+    );
+    doc.text(`Page ${p} of ${totalPages}`, pageWidth - marginX, pageHeight - 28, {
+      align: 'right',
+    });
+  }
+
+  return doc;
+}
